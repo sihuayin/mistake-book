@@ -90,28 +90,28 @@ export async function ocrImage(imageBase64: string): Promise<{
   const provider = getProvider();
   const { visionModel } = getModelConfig(provider);
   const client = createClient();
-  const response = await client.responses.create({
+  const response = await client.chat.completions.create({
     model: visionModel,
-    input: [
+    messages: [
       {
         role: "user",
         content: [
           {
-            type: "input_image",
-            input_image: { url: `data:image/jpeg;base64,${imageBase64}` },
+            type: "image_url",
+            image_url: {
+              url: `data:image/jpeg;base64,${imageBase64}`,
+            },
           },
           {
-            type: "input_text",
-            input_text:
-              "请识别这张图片中的数学题目文字内容,并提取所有LaTeX公式(如使用$...$或\\(...\\)包裹)。以JSON格式返回: {\"text\": \"识别到的文字\", \"latexBlocks\": [\"latex公式列表\"], \"confidence\": 0-1数字}。如果无法识别某部分文字,使用[?]标注。",
+            type: "text",
+            text: "请识别这张图片中的数学题目文字内容,并提取所有LaTeX公式(如使用$...$或\\(...\\)包裹)。以JSON格式返回: {\"text\": \"识别到的文字\", \"latexBlocks\": [\"latex公式列表\"], \"confidence\": 0-1数字}。如果无法识别某部分文字,使用[?]标注。",
           },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ] as any[],
+        ],
       },
     ],
   });
-  const raw = extractText(response.output);
-  // Try to parse JSON from response
+
+  const raw = response.choices[0]?.message?.content ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     const parsed = JSON.parse(jsonMatch[0]);
@@ -137,28 +137,12 @@ export async function classifyQuestion(
   const provider = getProvider();
   const { textModel } = getModelConfig(provider);
   const client = createClient();
-  const response = await client.responses.create({
+  const response = await client.chat.completions.create({
     model: textModel,
-    input: [
-      {
-        role: "user",
-        content: `给定以下题目和知识图谱JSON,请选择最匹配的section id。
-
-题目: ${questionText}
-
-知识图谱: ${knowledgeGraphJson}
-
-请返回JSON格式:
-{
-  "matched_section_id": "1.2",
-  "confidence": 0.85,
-  "reason": "题目涉及绝对值概念,与section 1.2 '有理数'匹配"
-}`,
-      },
-    ],
+    messages: [{ role: "user", content: `给定以下题目和知识图谱JSON,请选择最匹配的section id。\n\n题目: ${questionText}\n\n知识图谱: ${knowledgeGraphJson}\n\n请返回JSON格式:\n{\n  "matched_section_id": "1.2",\n  "confidence": 0.85,\n  "reason": "题目涉及绝对值概念,与section 1.2 '有理数'匹配"\n}` }],
   });
 
-  const raw = extractText(response.output);
+  const raw = response.choices[0]?.message?.content ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     return JSON.parse(jsonMatch[0]);
@@ -200,9 +184,9 @@ export async function generateReflectionQuestion(
         "你在这道题哪里卡住了?能描述一下你的思考过程吗?"
       : `基于学生的以上回答,生成下一个追问(限1个问题)。要求:追问要具体,引导深度思考,语言适合12-13岁初中生,不要重复之前的问题。直接输出问题,不要解释。`;
 
-  const response = await client.responses.create({
+  const response = await client.chat.completions.create({
     model: textModel,
-    input: [
+    messages: [
       {
         role: "user",
         content: `题目: ${questionText}\n错误类型: ${errorType}${context}\n\n请生成下一个追问:`,
@@ -211,7 +195,7 @@ export async function generateReflectionQuestion(
   });
 
   return {
-    question: extractText(response.output).trim(),
+    question: (response.choices[0]?.message?.content ?? "").trim(),
     followup_count: previousResponses.length + 1,
   };
 }
@@ -245,36 +229,17 @@ export async function gradeStepByStep(
     .map((s, i) => `步骤${i + 1}: ${s}`)
     .join("\n");
 
-  const response = await client.responses.create({
+  const response = await client.chat.completions.create({
     model: textModel,
-    input: [
+    messages: [
       {
         role: "user",
-        content: `请对以下初一数学解答题进行步骤级评分。
-
-题目: ${question}
-学生作答: ${studentAnswer}
-标准分步解答:
-${stepsText}
-
-评分标准:每个关键步骤分配分数,步骤正确得满分,步骤错误得0分,部分正确可给部分分。
-
-请返回JSON格式:
-{
-  "total_score": 8,
-  "max_score": 10,
-  "step_results": [
-    {"step": 1, "description": "去括号", "score": 3, "max": 3, "feedback": "正确"},
-    {"step": 2, "description": "移项", "score": 2, "max": 4, "feedback": "移项符号错误"},
-    {"step": 3, "description": "合并同类项", "score": 3, "max": 3, "feedback": "正确"}
-  ],
-  "overall_feedback": "在移项步骤出现问题,符号从正变负时漏写了负号。"
-}`,
+        content: `请对以下初一数学解答题进行步骤级评分。\n\n题目: ${question}\n学生作答: ${studentAnswer}\n标准分步解答:\n${stepsText}\n\n评分标准:每个关键步骤分配分数,步骤正确得满分,步骤错误得0分,部分正确可给部分分。\n\n请返回JSON格式:\n{\n  "total_score": 8,\n  "max_score": 10,\n  "step_results": [\n    {"step": 1, "description": "去括号", "score": 3, "max": 3, "feedback": "正确"},\n    {"step": 2, "description": "移项", "score": 2, "max": 4, "feedback": "移项符号错误"},\n    {"step": 3, "description": "合并同类项", "score": 3, "max": 3, "feedback": "正确"}\n  ],\n  "overall_feedback": "在移项步骤出现问题,符号从正变负时漏写了负号。"\n}`,
       },
     ],
   });
 
-  const raw = extractText(response.output);
+  const raw = response.choices[0]?.message?.content ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     return JSON.parse(jsonMatch[0]);
@@ -304,35 +269,17 @@ export async function generateVariation(
   const provider = getProvider();
   const { textModel } = getModelConfig(provider);
   const client = createClient();
-  const response = await client.responses.create({
+  const response = await client.chat.completions.create({
     model: textModel,
-    input: [
+    messages: [
       {
         role: "user",
-        content: `基于以下知识点,生成一道与原题相似但不完全相同的变式练习题。
-
-知识点章节: ${sectionId} - ${sectionDescription}
-关键点: ${keyPoints.join(", ")}
-原题: ${originalQuestion}
-
-要求:
-- 题目必须是解答题(非选择题),难度为"中等"
-- 题干中包含LaTeX公式时使用$...$包裹
-- 生成与原题考察同一知识点但数字或问法不同的变式题
-
-请返回JSON格式:
-{
-  "question": "题目内容(含LaTeX公式)",
-  "answer": "答案",
-  "solution_steps": ["步骤1", "步骤2", "步骤3"],
-  "solution": "详细解析",
-  "difficulty": "中等"
-}`,
+        content: `基于以下知识点,生成一道与原题相似但不完全相同的变式练习题。\n\n知识点章节: ${sectionId} - ${sectionDescription}\n关键点: ${keyPoints.join(", ")}\n原题: ${originalQuestion}\n\n要求:\n- 题目必须是解答题(非选择题),难度为"中等"\n- 题干中包含LaTeX公式时使用$...$包裹\n- 生成与原题考察同一知识点但数字或问法不同的变式题\n\n请返回JSON格式:\n{\n  "question": "题目内容(含LaTeX公式)",\n  "answer": "答案",\n  "solution_steps": ["步骤1", "步骤2", "步骤3"],\n  "solution": "详细解析",\n  "difficulty": "中等"\n}`,
       },
     ],
   });
 
-  const raw = extractText(response.output);
+  const raw = response.choices[0]?.message?.content ?? "";
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     return JSON.parse(jsonMatch[0]);
