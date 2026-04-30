@@ -1,5 +1,9 @@
 /**
- * AI integration module — qwen (通义千问) API wrapper
+ * AI integration module — configurable AI provider
+ *
+ * Supports:
+ * - kimi (Moonshot AI) — default for all tasks
+ * - qwen (通义千问/DashScope) — alternative
  *
  * All AI capabilities are routed through this module:
  * - OCR (vision model with base64 image input)
@@ -10,6 +14,39 @@
  */
 
 import OpenAI from "openai";
+
+// ─── Provider configuration ────────────────────────────────────────────────
+
+type Provider = "kimi" | "qwen";
+
+const PROVIDER_CONFIG: Record<
+  Provider,
+  {
+    baseURL: string;
+    apiKeyEnv: string;
+    visionModel: string;
+    textModel: string;
+  }
+> = {
+  kimi: {
+    baseURL: "https://api.moonshot.cn/v1",
+    apiKeyEnv: "KIMI_API_KEY",
+    visionModel: "moonshot-v1-vision-preview",
+    textModel: "moonshot-v1-32k",
+  },
+  qwen: {
+    baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiKeyEnv: "DASHSCOPE_API_KEY",
+    visionModel: "qwen-vl-max",
+    textModel: "qwen-plus",
+  },
+};
+
+function getProvider(): Provider {
+  const val = (process.env.AI_PROVIDER ?? "kimi").toLowerCase().trim();
+  if (val === "qwen") return "qwen";
+  return "kimi"; // default
+}
 
 /** Extract plain text from an OpenAI Responses API output array */
 function extractText(output: unknown[]): string {
@@ -26,19 +63,21 @@ function extractText(output: unknown[]): string {
   return "";
 }
 
-const QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-const MODEL_VISION = "qwen-vl-max";
-const MODEL_TEXT = "qwen-plus";
-
 function createClient() {
-  const apiKey = process.env.DASHSCOPE_API_KEY;
+  const provider = getProvider();
+  const cfg = PROVIDER_CONFIG[provider];
+  const apiKey = process.env[cfg.apiKeyEnv];
   if (!apiKey) {
-    throw new Error("DASHSCOPE_API_KEY environment variable is not set");
+    throw new Error(`${cfg.apiKeyEnv} environment variable is not set (provider: ${provider})`);
   }
   return new OpenAI({
-    baseURL: QWEN_BASE_URL,
+    baseURL: cfg.baseURL,
     apiKey,
   });
+}
+
+function getModelConfig(provider: Provider) {
+  return PROVIDER_CONFIG[provider];
 }
 
 // ─── OCR ────────────────────────────────────────────────────────────────────
@@ -48,9 +87,11 @@ export async function ocrImage(imageBase64: string): Promise<{
   latexBlocks: string[];
   confidence: number;
 }> {
+  const provider = getProvider();
+  const { visionModel } = getModelConfig(provider);
   const client = createClient();
   const response = await client.responses.create({
-    model: MODEL_VISION,
+    model: visionModel,
     input: [
       {
         role: "user",
@@ -69,7 +110,6 @@ export async function ocrImage(imageBase64: string): Promise<{
       },
     ],
   });
-
   const raw = extractText(response.output);
   // Try to parse JSON from response
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -94,9 +134,11 @@ export async function classifyQuestion(
   confidence: number;
   reason: string;
 }> {
+  const provider = getProvider();
+  const { textModel } = getModelConfig(provider);
   const client = createClient();
   const response = await client.responses.create({
-    model: MODEL_TEXT,
+    model: textModel,
     input: [
       {
         role: "user",
@@ -145,6 +187,8 @@ export async function generateReflectionQuestion(
   questionText: string,
   previousResponses: string[]
 ): Promise<{ question: string; followup_count: number }> {
+  const provider = getProvider();
+  const { textModel } = getModelConfig(provider);
   const client = createClient();
   const context = previousResponses.length
     ? `\n学生之前的回答:\n${previousResponses.map((r, i) => `${i + 1}. ${r}`).join("\n")}`
@@ -157,7 +201,7 @@ export async function generateReflectionQuestion(
       : `基于学生的以上回答,生成下一个追问(限1个问题)。要求:追问要具体,引导深度思考,语言适合12-13岁初中生,不要重复之前的问题。直接输出问题,不要解释。`;
 
   const response = await client.responses.create({
-    model: MODEL_TEXT,
+    model: textModel,
     input: [
       {
         role: "user",
@@ -194,13 +238,15 @@ export async function gradeStepByStep(
   }>;
   overall_feedback: string;
 }> {
+  const provider = getProvider();
+  const { textModel } = getModelConfig(provider);
   const client = createClient();
   const stepsText = solutionSteps
     .map((s, i) => `步骤${i + 1}: ${s}`)
     .join("\n");
 
   const response = await client.responses.create({
-    model: MODEL_TEXT,
+    model: textModel,
     input: [
       {
         role: "user",
@@ -255,9 +301,11 @@ export async function generateVariation(
   solution: string;
   difficulty: "简单" | "中等" | "困难";
 }> {
+  const provider = getProvider();
+  const { textModel } = getModelConfig(provider);
   const client = createClient();
   const response = await client.responses.create({
-    model: MODEL_TEXT,
+    model: textModel,
     input: [
       {
         role: "user",
