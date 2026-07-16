@@ -5,9 +5,57 @@ let _kg: KnowledgeGraph | null = null;
 
 export function getKnowledgeGraph(): KnowledgeGraph {
   if (!_kg) {
-    _kg = data as KnowledgeGraph;
+    const raw = data as KnowledgeGraph;
+    const gradeGroups = raw.grade_groups ?? [];
+    const chapters =
+      raw.chapters?.length
+        ? raw.chapters
+        : gradeGroups.flatMap((group) =>
+            group.chapters.map((chapter) => ({
+              ...chapter,
+              grade: chapter.grade || group.grade,
+            }))
+          );
+
+    _kg = {
+      ...raw,
+      chapters,
+      grade_groups:
+        gradeGroups.length > 0
+          ? gradeGroups.map((group) => ({
+              ...group,
+              chapters: group.chapters.map((chapter) => ({
+                ...chapter,
+                grade: chapter.grade || group.grade,
+              })),
+            }))
+          : undefined,
+    };
   }
   return _kg;
+}
+
+export function getGradeOptions(): string[] {
+  const kg = getKnowledgeGraph();
+  if (kg.grade_groups?.length) {
+    return kg.grade_groups.map((group) => group.grade);
+  }
+  return Array.from(new Set(kg.chapters.map((chapter) => chapter.grade).filter(Boolean)));
+}
+
+export function filterKnowledgeGraphByGrade(grade?: string | null): KnowledgeGraph {
+  const kg = getKnowledgeGraph();
+  if (!grade) return kg;
+
+  const gradeGroups = (kg.grade_groups ?? []).filter((group) => group.grade === grade);
+  const chapters = kg.chapters.filter((chapter) => chapter.grade === grade);
+
+  return {
+    ...kg,
+    grade: grade,
+    chapters,
+    grade_groups: gradeGroups,
+  };
 }
 
 export function findSection(sectionId: string) {
@@ -17,6 +65,17 @@ export function findSection(sectionId: string) {
     if (section) return { chapter, section };
   }
   return null;
+}
+
+export function getSectionMeta(sectionId: string) {
+  const found = findSection(sectionId);
+  if (!found) return null;
+  return {
+    grade: found.chapter.grade,
+    chapter_id: found.chapter.chapter_id,
+    chapter_title: found.chapter.title,
+    section: found.section,
+  };
 }
 
 export function findSectionsByKeyword(keyword: string) {

@@ -1,8 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fbff;
+  --foreground: #1d2433;
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-strong: #ffffff;
+  --line: rgba(120, 141, 181, 0.2);
+  --sky: #5db7ff;
+  --sky-deep: #1677ff;
+  --mint: #5ed7b2;
+  --lemon: #ffd84d;
+  --coral: #ff8f6b;
+  --berry: #7f78ff;
+  --ink-soft: #5e6b85;
 }
 
 @theme inline {
@@ -14,13 +24,46 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0f1725;
+    --foreground: #eef4ff;
+    --surface: rgba(17, 26, 43, 0.82);
+    --surface-strong: #121c30;
+    --line: rgba(144, 177, 235, 0.18);
+    --ink-soft: #a8b8d6;
   }
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(93, 183, 255, 0.28), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 216, 77, 0.24), transparent 24%),
+    linear-gradient(180deg, #f7fbff 0%, #eef6ff 100%);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Avenir Next", "Trebuchet MS", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+::selection {
+  background: rgba(93, 183, 255, 0.24);
+}
+
+.glass-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 22px 60px rgba(59, 94, 161, 0.08);
+}
+
+.math-block {
+  margin: 0.6rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.math-fallback {
+  white-space: pre-wrap;
+  word-break: break-word;
 }

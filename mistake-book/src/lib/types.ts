@@ -15,21 +15,67 @@ export interface Section {
 
 export interface Chapter {
   chapter_id: string;
+  grade: string;
   title: string;
   sections: Section[];
+}
+
+export interface GradeGroup {
+  grade: string;
+  chapters: Chapter[];
 }
 
 export interface KnowledgeGraph {
   curriculum: string;
   grade: string;
+  stage?: string;
   subject: string;
   chapters: Chapter[];
+  grade_groups?: GradeGroup[];
 }
 
 // ─── User ───────────────────────────────────────────────────────────────────
 
 export type UserRole = "student" | "parent";
 export type ErrorType = "粗心" | "概念混淆" | "思路断链" | "完全不会";
+
+export interface DiagramRelation {
+  kind: string;
+  at?: string;
+  name?: string;
+  value?: string;
+  items?: Array<[string, string]>;
+  between?: Array<[string, string]>;
+}
+
+export interface DiagramLabel {
+  text: string;
+  at?: string;
+}
+
+export interface DiagramData {
+  type: "geometry_diagram" | "algebra_table" | "coordinate_graph" | "unknown";
+  scene?: string;
+  points?: string[];
+  segments?: Array<[string, string]>;
+  relations?: DiagramRelation[];
+  labels?: DiagramLabel[];
+}
+
+export interface QuestionPayload {
+  stem_text?: string;
+  options?: Array<{
+    label: string;
+    text: string;
+    latex?: string;
+  }>;
+  diagram?: DiagramData | null;
+  student_marks?: {
+    selected_option?: string;
+    handwritten_notes?: string[];
+    teacher_marks?: string[];
+  };
+}
 
 // ─── Mastery ───────────────────────────────────────────────────────────────
 
@@ -85,10 +131,25 @@ export interface OcrPayload {
   imageBase64: string;
 }
 
+export interface OcrProblem {
+  question_text: string;
+  latex_content?: string;
+  question_payload?: QuestionPayload;
+  student_answer?: string;
+  is_correct?: boolean | null;
+  error_type?: ErrorType | "";
+  knowledge_points?: string[];
+  matched_section_id?: string;
+  section_name?: string;
+  confidence?: number;
+}
+
 export interface OcrResult {
   text: string;
   latexBlocks: string[];
   confidence: number;
+  summary?: string;
+  problems?: OcrProblem[];
 }
 
 export interface ClassifyPayload {

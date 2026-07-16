@@ -1,6 +1,6 @@
 # mistake-book
 
-初一数学智能错题本 — 学习行为改变系统
+初中数学智能错题本 — 学习行为改变系统
 
 ## 技术栈
 - Next.js 16 (App Router), TypeScript, Tailwind CSS v4
