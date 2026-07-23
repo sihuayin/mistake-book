@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import MathContent from "@/components/MathContent";
 import DiagramPreview from "@/components/DiagramPreview";
-import type { QuestionPayload } from "@/lib/types";
+import type { DiagramRelation, QuestionPayload } from "@/lib/types";
 
 interface Reflection {
   id: string;
@@ -19,9 +19,13 @@ interface MistakeDetail {
   question: {
     id: string;
     section_id: string;
+    section_name?: string | null;
+    chapter_title?: string | null;
+    grade?: string | null;
     question_text: string;
     latex_content: string | null;
     question_payload?: QuestionPayload | null;
+    knowledge_points?: string[] | null;
     source: string;
     question_type: string;
   };
@@ -42,6 +46,31 @@ const ERROR_TYPE_COLORS: Record<string, string> = {
   思路断链: "bg-orange-100 text-orange-700",
   完全不会: "bg-red-100 text-red-700",
 };
+
+function formatRelationText(relation: DiagramRelation) {
+  if (relation.kind === "angle") {
+    return relation.value
+      ? `角 ${relation.name ?? ""} 的大小是 ${relation.value}`.trim()
+      : `图中标出了角 ${relation.name ?? ""}`.trim();
+  }
+  if (relation.kind === "right_angle") {
+    return relation.at ? `${relation.at} 点是直角` : "图中存在直角关系";
+  }
+  if (relation.kind === "parallel") {
+    return relation.items?.length
+      ? `${relation.items.map((pair) => `${pair[0]}${pair[1]}`).join("、")} 互相平行`
+      : "图中存在平行关系";
+  }
+  if (relation.kind === "target") {
+    return relation.name ? `题目要求求出 ${relation.name}` : "题目给出了待求目标";
+  }
+  if (relation.kind === "equal") {
+    return relation.items?.length
+      ? `${relation.items.map((pair) => `${pair[0]}${pair[1]}`).join("、")} 长度或关系相等`
+      : "图中存在相等关系";
+  }
+  return [relation.name, relation.value, relation.at].filter(Boolean).join(" · ") || "已识别出一个图形关系";
+}
 
 export default function MistakeDetailPage({
   params,
@@ -88,7 +117,14 @@ export default function MistakeDetailPage({
       {/* Question */}
       <div className="bg-white rounded-2xl border border-gray-100 p-5">
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{question.section_id}</span>
+          <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+            {question.section_name || question.section_id}
+          </span>
+          {question.grade || question.chapter_title ? (
+            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+              {[question.grade, question.chapter_title].filter(Boolean).join(" · ")}
+            </span>
+          ) : null}
           <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{question.question_type}</span>
           {mainReflection && (
             <span className={`text-xs px-2 py-0.5 rounded-full ${ERROR_TYPE_COLORS[mainReflection.error_type] ?? "bg-gray-100 text-gray-500"}`}>
@@ -96,11 +132,49 @@ export default function MistakeDetailPage({
             </span>
           )}
         </div>
+        {question.knowledge_points?.length ? (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {question.knowledge_points.map((point, index) => (
+              <span key={`${point}-${index}`} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700">
+                {point}
+              </span>
+            ))}
+          </div>
+        ) : null}
         <h2 className="font-semibold mb-2">题目</h2>
-        <MathContent
-          content={question.latex_content || question.question_text}
-          className="text-sm leading-7 text-gray-800"
-        />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+          <div className="min-w-0">
+            <MathContent
+              content={question.latex_content || question.question_text}
+              className="text-sm leading-7 text-gray-800"
+            />
+          </div>
+          <div className="space-y-3">
+            {question.question_payload?.question_preview_image_base64 ? (
+              <div className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50 p-2">
+                <div className="px-1 pb-2 text-xs font-medium text-slate-500">题目裁剪</div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={question.question_payload.question_preview_image_base64}
+                  alt="题目局部裁剪"
+                  className="max-h-[220px] w-full rounded-xl object-contain"
+                />
+              </div>
+            ) : null}
+            {question.question_payload?.diagram?.preview_image_base64 &&
+            question.question_payload.diagram.type !== "coordinate_graph" ? (
+              <div className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50 p-2">
+                <div className="px-1 pb-2 text-xs font-medium text-slate-500">图形裁剪</div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={question.question_payload.diagram.preview_image_base64}
+                  alt="图形局部裁剪"
+                  className="max-h-[220px] w-full rounded-xl object-contain"
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
         {question.question_payload?.options?.length ? (
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {question.question_payload.options.map((option) => (
@@ -127,10 +201,8 @@ export default function MistakeDetailPage({
             <div className="mt-3 space-y-2">
               {question.question_payload.diagram.relations.map((relation, index) => (
                 <div key={`${relation.kind}-${index}`} className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  <span className="font-medium">{relation.kind}</span>
-                  {relation.name ? ` · ${relation.name}` : ""}
-                  {relation.value ? ` = ${relation.value}` : ""}
-                  {relation.at ? ` · 点 ${relation.at}` : ""}
+                  <span className="font-medium">关系 {index + 1}</span>
+                  <p className="mt-1 leading-6">{formatRelationText(relation)}</p>
                 </div>
               ))}
             </div>
@@ -145,9 +217,16 @@ export default function MistakeDetailPage({
             <p className="text-sm text-gray-700">选择答案：{question.question_payload.student_marks.selected_option}</p>
           ) : null}
           {question.question_payload.student_marks.handwritten_notes?.length ? (
-            <p className="mt-2 text-sm text-gray-700">
-              手写标注：{question.question_payload.student_marks.handwritten_notes.join("、")}
-            </p>
+            <div className="mt-2 text-sm text-gray-700">
+              <div>手写标注：</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {question.question_payload.student_marks.handwritten_notes.map((note, index) => (
+                  <span key={`${note}-${index}`} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                    {note}
+                  </span>
+                ))}
+              </div>
+            </div>
           ) : null}
         </div>
       )}

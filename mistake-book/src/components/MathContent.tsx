@@ -12,41 +12,116 @@ function escapeHtml(text: string) {
     .replaceAll("'", "&#39;");
 }
 
-function renderMathText(input: string) {
-  if (!input.trim()) return "";
+function normalizeMathSource(input: string) {
+  return input
+    .replaceAll("\\\\qquad", " ")
+    .replaceAll("\\\\quad", " ")
+    .replaceAll("\\\\,", " ")
+    .replaceAll("\\\\:", " ")
+    .replaceAll("\\\\;", " ")
+    .replaceAll("\\\\!", "")
+    .replaceAll("\\\\dfrac", "\\frac")
+    .replaceAll("\\\\tfrac", "\\frac")
+    .replaceAll("\\\\boxed", "\\fbox")
+    .replace(/\\\\(?=[a-zA-Z])/g, "\\");
+}
 
-  const pattern = /(\$\$[\s\S]+?\$\$|\$[^$\n]+\$)/g;
-  const parts = input.split(pattern).filter(Boolean);
+function normalizeLooseMathText(input: string) {
+  return input
+    .replaceAll("\\pm", "±")
+    .replaceAll("\\cdots", "⋯")
+    .replaceAll("\\cdot", "·")
+    .replaceAll("\\times", "×")
+    .replaceAll("\\leq", "≤")
+    .replaceAll("\\geq", "≥")
+    .replaceAll("\\neq", "≠")
+    .replaceAll("\\angle", "∠")
+    .replaceAll("\\circ", "°")
+    .replace(/\\sqrt\[(\d+)\]\{([^}]*)\}/g, "[$1]√$2")
+    .replace(/\\sqrt\{([^}]*)\}/g, "√$1")
+    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1/$2)")
+    .replace(/\\dfrac\{([^}]*)\}\{([^}]*)\}/g, "($1/$2)")
+    .replace(/\\tfrac\{([^}]*)\}\{([^}]*)\}/g, "($1/$2)")
+    .replace(/\\text\{([^}]*)\}/g, "$1")
+    .replaceAll("\\left", "")
+    .replaceAll("\\right", "");
+}
+
+function looksLikeMathFragment(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed.length > 120) return false;
+  if (/[。！？；，,]/.test(trimmed)) return false;
+  if (/[\u4e00-\u9fff]/.test(trimmed) && !/[\\^_{}=±×·÷√∠πθ≤≥≠]/.test(trimmed)) {
+    return false;
+  }
+  return (
+    /\\(?:frac|dfrac|tfrac|sqrt|times|cdot|leq|geq|neq|pm|angle|pi|theta|begin|end|text|boxed)/.test(trimmed) ||
+    /[_^=+\-*/(){}\[\]<>]/.test(trimmed) ||
+    /\d/.test(trimmed)
+  );
+}
+
+function shouldRenderStandaloneMath(text: string) {
+  return looksLikeMathFragment(text);
+}
+
+function renderStandaloneMath(text: string) {
+  const normalized = normalizeMathSource(text).trim();
+  if (!shouldRenderStandaloneMath(normalized)) {
+    return null;
+  }
+
+  try {
+    return katex.renderToString(normalized, {
+      throwOnError: false,
+      displayMode: false,
+      strict: "ignore",
+    });
+  } catch {
+    return null;
+  }
+}
+
+function renderMathText(input: string) {
+  const normalizedInput = normalizeMathSource(input);
+  if (!normalizedInput.trim()) return "";
+
+  const pattern = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$[^$\n]+\$)/g;
+  const parts = normalizedInput.split(pattern).filter(Boolean);
 
   return parts
     .map((part) => {
-      if (part.startsWith("$$") && part.endsWith("$$")) {
-        const expr = part.slice(2, -2).trim();
+      const normalizedPart =
+        part.startsWith("\\[") && part.endsWith("\\]")
+          ? { expr: part.slice(2, -2).trim(), displayMode: true }
+          : part.startsWith("\\(") && part.endsWith("\\)")
+            ? { expr: part.slice(2, -2).trim(), displayMode: false }
+            : part.startsWith("$$") && part.endsWith("$$")
+              ? { expr: part.slice(2, -2).trim(), displayMode: true }
+              : part.startsWith("$") && part.endsWith("$")
+                ? { expr: part.slice(1, -1).trim(), displayMode: false }
+                : null;
+
+      if (normalizedPart) {
         try {
-          return `<div class="math-block">${katex.renderToString(expr, {
+          const rendered = katex.renderToString(normalizedPart.expr, {
             throwOnError: false,
-            displayMode: true,
+            displayMode: normalizedPart.displayMode,
             strict: "ignore",
-          })}</div>`;
+          });
+          return normalizedPart.displayMode ? `<div class="math-block">${rendered}</div>` : rendered;
         } catch {
           return `<pre class="math-fallback">${escapeHtml(part)}</pre>`;
         }
       }
 
-      if (part.startsWith("$") && part.endsWith("$")) {
-        const expr = part.slice(1, -1).trim();
-        try {
-          return katex.renderToString(expr, {
-            throwOnError: false,
-            displayMode: false,
-            strict: "ignore",
-          });
-        } catch {
-          return escapeHtml(part);
-        }
+      const standaloneMath = renderStandaloneMath(part);
+      if (standaloneMath) {
+        return standaloneMath;
       }
 
-      return escapeHtml(part).replaceAll("\n", "<br />");
+      return escapeHtml(normalizeLooseMathText(part)).replaceAll("\n", "<br />");
     })
     .join("");
 }

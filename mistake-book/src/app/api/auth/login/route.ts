@@ -13,9 +13,27 @@ function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
 
+function buildAuthResponse(
+  payload: Record<string, unknown>,
+  sessionId?: string,
+  status = 200
+) {
+  const response = NextResponse.json(payload, { status });
+  if (sessionId) {
+    response.cookies.set("mb_session", sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60,
+      path: "/",
+    });
+  }
+  return response;
+}
+
 export async function POST(req: NextRequest) {
-  ensureDb();
   try {
+    ensureDb();
     const { name, password } = await req.json();
 
     if (!name || !password) {
@@ -33,8 +51,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "用户名或密码错误" }, { status: 401 });
     }
 
-    await createSession(user.id);
-    return NextResponse.json(user);
+    const sessionId = await createSession(user.id);
+    return buildAuthResponse(user, sessionId);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

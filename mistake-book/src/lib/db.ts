@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import fs from "fs";
 import path from "path";
 
 const DB_PATH = path.join(process.cwd(), "data", "mistake-book.db");
@@ -8,7 +9,6 @@ let _db: Database.Database | null = null;
 export function getDb(): Database.Database {
   if (!_db) {
     // Ensure data directory exists
-    const fs = require("fs");
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });

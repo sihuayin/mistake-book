@@ -14,9 +14,27 @@ function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
 
+function buildAuthResponse(
+  payload: Record<string, unknown>,
+  sessionId?: string,
+  status = 200
+) {
+  const response = NextResponse.json(payload, { status });
+  if (sessionId) {
+    response.cookies.set("mb_session", sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60,
+      path: "/",
+    });
+  }
+  return response;
+}
+
 export async function POST(req: NextRequest) {
-  ensureDb();
   try {
+    ensureDb();
     const { name, password, role, familyCode, currentGrade } = await req.json();
 
     if (!name || !password || !role) {
@@ -76,14 +94,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await createSession(id);
-    return NextResponse.json({
+    const sessionId = await createSession(id);
+    return buildAuthResponse({
       id,
       name,
       role,
       family_code: resolvedFamilyCode,
       current_grade: role === "student" ? (currentGrade ?? "七年级") : null,
-    });
+    }, sessionId);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -11,6 +11,25 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  async function readResponsePayload(response: Response) {
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      try {
+        return await response.json();
+      } catch {
+        return null;
+      }
+    }
+
+    const text = await response.text().catch(() => "");
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: text };
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -22,15 +41,15 @@ export default function LoginPage() {
       body: JSON.stringify({ name, password }),
     });
 
-    const data = await res.json();
+    const data = (await readResponsePayload(res)) as { error?: string; role?: string } | null;
     setLoading(false);
 
     if (!res.ok) {
-      setError(data.error || "登录失败");
+      setError(data?.error || "登录失败");
       return;
     }
 
-    router.push(data.role === "parent" ? "/parent" : "/");
+    router.push(data?.role === "parent" ? "/parent" : "/");
     router.refresh();
   }
 

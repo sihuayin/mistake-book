@@ -11,6 +11,34 @@ function ensureDb() {
   if (!initialized) { initDb(); initialized = true; }
 }
 
+function parseQuestionPayload(value: unknown): QuestionPayload | null {
+  if (!value || typeof value !== "string") return null;
+  try {
+    return JSON.parse(value) as QuestionPayload;
+  } catch {
+    return null;
+  }
+}
+
+function parseKnowledgePoints(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value !== "string" || !value.trim()) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+  } catch {
+    return value
+      .split(/[，,、\n]/g)
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+}
+
 type MistakeDraft = {
   question_text: string;
   section_id?: string;
@@ -18,6 +46,7 @@ type MistakeDraft = {
   source?: string;
   latex_content?: string | null;
   question_payload?: QuestionPayload;
+  knowledge_points?: string[];
   is_correct?: number | boolean | null;
   error_type?: string;
   reflection_text?: string;
@@ -31,6 +60,7 @@ type NormalizedMistakeDraft = {
   source: string;
   latex_content: string | null;
   question_payload?: QuestionPayload;
+  knowledge_points: string[];
   is_correct: number | boolean | null;
   error_type: string;
   reflection_text: string;
@@ -42,14 +72,15 @@ function createMistakeRecord(db: ReturnType<typeof getDb>, userId: string, paylo
   const attemptId = uuidv4();
 
   db.prepare(
-    `INSERT INTO questions (id, section_id, question_text, latex_content, question_payload, source, question_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO questions (id, section_id, question_text, latex_content, question_payload, knowledge_points, source, question_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     questionId,
     payload.section_id,
     payload.question_text,
     payload.latex_content ?? null,
     payload.question_payload ? JSON.stringify(payload.question_payload) : null,
+    payload.knowledge_points.length ? JSON.stringify(payload.knowledge_points) : null,
     payload.source,
     payload.question_type
   );
@@ -91,7 +122,7 @@ export async function GET(req: NextRequest) {
   const grade = req.nextUrl.searchParams.get("grade");
 
   let sql = `
-    SELECT q.id, q.section_id, q.question_text, q.latex_content, q.question_payload, q.source, q.question_type,
+    SELECT q.id, q.section_id, q.question_text, q.latex_content, q.question_payload, q.knowledge_points, q.source, q.question_type,
            a.is_correct, a.ai_feedback, a.created_at,
            r.error_type, r.free_text
     FROM questions q
@@ -110,6 +141,8 @@ export async function GET(req: NextRequest) {
   const enriched = mistakes.map((mistake) => ({
     ...mistake,
     grade: getSectionMeta(String(mistake.section_id))?.grade ?? null,
+    question_payload: parseQuestionPayload(mistake.question_payload),
+    knowledge_points: parseKnowledgePoints(mistake.knowledge_points),
   }));
 
   const filtered = grade
@@ -164,6 +197,7 @@ export async function POST(req: NextRequest) {
         source: draft.source ?? "ocr",
         latex_content: draft.latex_content ?? null,
         question_payload: draft.question_payload,
+        knowledge_points: draft.knowledge_points ?? [],
         is_correct: typeof draft.is_correct === "boolean" ? draft.is_correct : Number(draft.is_correct ?? 0),
         error_type: draft.error_type ?? "",
         reflection_text: draft.reflection_text ?? "",

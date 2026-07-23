@@ -45,15 +45,6 @@ export async function createSession(userId: string): Promise<string> {
     "INSERT OR REPLACE INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)"
   ).run(sessionId, userId, expiresAt);
 
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, sessionId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: SESSION_MAX_AGE,
-    path: "/",
-  });
-
   return sessionId;
 }
 

@@ -16,6 +16,9 @@ export interface AbilityDimension {
   score: number;
   summary: string;
   trend: OverviewTrend;
+  evidence_count: number;
+  confidence: number;
+  evidence_label: string;
 }
 
 export interface OverviewRecommendation {
@@ -97,8 +100,31 @@ interface MetricScores {
   practiceEngagement: number;
 }
 
+interface MetricEvidence {
+  count: number;
+  label: string;
+  confidence: number;
+}
+
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function blendWithPrior(rawScore: number, priorScore: number, evidenceCount: number, priorWeight = 6) {
+  const weight = Math.max(0, evidenceCount);
+  return clampScore((rawScore * weight + priorScore * priorWeight) / (weight + priorWeight));
+}
+
+function confidenceFromEvidence(evidenceCount: number, scale = 8) {
+  const confidence = 1 - Math.exp(-Math.max(0, evidenceCount) / Math.max(1, scale));
+  return clampScore(confidence * 100);
+}
+
+function formatEvidenceLabel(count: number, source: "题目" | "复习记录" | "反思记录" | "练习记录") {
+  if (count <= 0) {
+    return `本次暂缺${source}`;
+  }
+  return `本次基于 ${count} ${source}`;
 }
 
 function scoreReflectionText(text: string | null) {
@@ -139,37 +165,42 @@ function calculateMetricScores(
     .filter((attempt) => attempt.free_text)
     .map((attempt) => scoreReflectionText(attempt.free_text));
 
-  const knowledgeMastery = attempts.length
+  const knowledgeMasteryRaw = attempts.length
     ? clampScore((correctAttempts / attempts.length) * 100)
     : 58;
+  const knowledgeMastery = blendWithPrior(knowledgeMasteryRaw, 58, attempts.length, 5);
 
   const recentAccuracy = recent30.length
     ? (recent30.filter((attempt) => attempt.is_correct === 1).length / recent30.length) * 100
     : knowledgeMastery;
   const carelessRate = mistakeAttempts.length ? (carelessMistakes / mistakeAttempts.length) * 100 : 0;
-  const calculationStability = attempts.length
+  const calculationRaw = attempts.length
     ? clampScore(recentAccuracy * 0.65 + (100 - carelessRate) * 0.35)
     : 62;
+  const calculationStability = blendWithPrior(calculationRaw, 62, mistakeAttempts.length + recent30.length, 5);
 
-  const reflectionQuality = reflectionScores.length
+  const reflectionRaw = reflectionScores.length
     ? clampScore(reflectionScores.reduce((sum, score) => sum + score, 0) / reflectionScores.length)
     : 45;
+  const reflectionQuality = blendWithPrior(reflectionRaw, 45, reflectionScores.length, 3);
 
   const dueReviews = reviews.filter((review) => review.due_at <= now);
   const completedDueReviews = dueReviews.filter(
     (review) => review.status === "done" || !!review.reviewed_at
   );
-  const reviewExecution = dueReviews.length
+  const reviewRaw = dueReviews.length
     ? clampScore((completedDueReviews.length / dueReviews.length) * 100)
     : 82;
+  const reviewExecution = blendWithPrior(reviewRaw, 82, dueReviews.length, 4);
 
   const uniqueRecentSections = new Set(recent14.map((attempt) => attempt.section_id)).size;
   const attemptVolumeScore = Math.min(100, (recent14.length / 10) * 100);
   const breadthScore = Math.min(100, (uniqueRecentSections / 4) * 100);
   const recencyScore = recent14.length > 0 ? 100 : recent30.length > 0 ? 72 : 38;
-  const practiceEngagement = attempts.length
+  const practiceRaw = attempts.length
     ? clampScore(attemptVolumeScore * 0.45 + breadthScore * 0.25 + recencyScore * 0.3)
     : 50;
+  const practiceEngagement = blendWithPrior(practiceRaw, 50, recent14.length + uniqueRecentSections, 4);
 
   return {
     knowledgeMastery,
@@ -292,6 +323,39 @@ export function buildStudentOverview(
   const reviewExecution = metrics.reviewExecution;
   const practiceEngagement = metrics.practiceEngagement;
 
+  const knowledgeEvidence: MetricEvidence = {
+    count: attempts.length,
+    label: formatEvidenceLabel(attempts.length, "题目"),
+    confidence: confidenceFromEvidence(attempts.length, 10),
+  };
+  const calculationEvidence: MetricEvidence = {
+    count: mistakeAttempts.length + currentAttempts.length,
+    label: formatEvidenceLabel(mistakeAttempts.length + currentAttempts.length, "题目"),
+    confidence: confidenceFromEvidence(mistakeAttempts.length + currentAttempts.length, 8),
+  };
+  const reflectionEvidenceCount = attempts.filter((attempt) => attempt.error_type || attempt.free_text).length;
+  const reflectionEvidence: MetricEvidence = {
+    count: reflectionEvidenceCount,
+    label: formatEvidenceLabel(reflectionEvidenceCount, "反思记录"),
+    confidence: confidenceFromEvidence(reflectionEvidenceCount, 5),
+  };
+  const reviewEvidence: MetricEvidence = {
+    count: reviews.length,
+    label: formatEvidenceLabel(reviews.length, "复习记录"),
+    confidence: confidenceFromEvidence(reviews.length, 6),
+  };
+  const practiceEvidence: MetricEvidence = {
+    count: new Set(attempts.map((attempt) => attempt.section_id)).size + currentAttempts.length,
+    label: formatEvidenceLabel(
+      new Set(attempts.map((attempt) => attempt.section_id)).size + currentAttempts.length,
+      "练习记录"
+    ),
+    confidence: confidenceFromEvidence(
+      new Set(attempts.map((attempt) => attempt.section_id)).size + currentAttempts.length,
+      7
+    ),
+  };
+
   const dimensions: AbilityDimension[] = [
     {
       key: "knowledge_mastery",
@@ -299,6 +363,9 @@ export function buildStudentOverview(
       shortLabel: "知识",
       score: knowledgeMastery,
       trend: buildTrend(currentMetrics.knowledgeMastery, previousMetrics.knowledgeMastery),
+      evidence_count: knowledgeEvidence.count,
+      confidence: knowledgeEvidence.confidence,
+      evidence_label: knowledgeEvidence.label,
       summary: describeScore(
         knowledgeMastery,
         "基础知识掌握比较稳，已经能支撑更高层练习。",
@@ -312,6 +379,9 @@ export function buildStudentOverview(
       shortLabel: "计算",
       score: calculationStability,
       trend: buildTrend(currentMetrics.calculationStability, previousMetrics.calculationStability),
+      evidence_count: calculationEvidence.count,
+      confidence: calculationEvidence.confidence,
+      evidence_label: calculationEvidence.label,
       summary: describeScore(
         calculationStability,
         "计算与书写稳定，粗心型失误控制得不错。",
@@ -325,6 +395,9 @@ export function buildStudentOverview(
       shortLabel: "反思",
       score: reflectionQuality,
       trend: buildTrend(currentMetrics.reflectionQuality, previousMetrics.reflectionQuality),
+      evidence_count: reflectionEvidence.count,
+      confidence: reflectionEvidence.confidence,
+      evidence_label: reflectionEvidence.label,
       summary: describeScore(
         reflectionQuality,
         "反思比较具体，能看出学生在主动复盘。",
@@ -338,6 +411,9 @@ export function buildStudentOverview(
       shortLabel: "复习",
       score: reviewExecution,
       trend: buildTrend(currentMetrics.reviewExecution, previousMetrics.reviewExecution),
+      evidence_count: reviewEvidence.count,
+      confidence: reviewEvidence.confidence,
+      evidence_label: reviewEvidence.label,
       summary: describeScore(
         reviewExecution,
         "复习执行到位，记忆巩固节奏整体稳定。",
@@ -351,6 +427,9 @@ export function buildStudentOverview(
       shortLabel: "投入",
       score: practiceEngagement,
       trend: buildTrend(currentMetrics.practiceEngagement, previousMetrics.practiceEngagement),
+      evidence_count: practiceEvidence.count,
+      confidence: practiceEvidence.confidence,
+      evidence_label: practiceEvidence.label,
       summary: describeScore(
         practiceEngagement,
         "最近练习比较主动，节奏和覆盖面都不错。",

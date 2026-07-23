@@ -3,15 +3,6 @@ import { getDb } from "@/lib/db";
 import { getKnowledgeGraph } from "@/lib/knowledge";
 import type { MasteryScore } from "@/lib/types";
 
-// Ebbinghaus critical intervals in milliseconds
-const CRITICAL_INTERVALS_MS = [
-  1 * 24 * 60 * 60 * 1000,
-  3 * 24 * 60 * 60 * 1000,
-  7 * 24 * 60 * 60 * 1000,
-  14 * 24 * 60 * 60 * 1000,
-  30 * 24 * 60 * 60 * 1000,
-];
-
 function calculateReflectionQuality(reflections: { free_text: string | null }[]): number {
   if (reflections.length === 0) return 0;
   const scores = reflections.map((r) => {
@@ -69,12 +60,7 @@ export async function GET(req: NextRequest) {
           )
           .all(studentId) as { due_at: number; status: string; reviewed_at: number | null }[];
 
-        const sectionReviews = reviews.filter((r) => {
-          // Filter reviews for this section
-          return true; // Simplified for now
-        });
-
-        const reviewCompliance = calculateReviewCompliance(sectionReviews);
+        const reviewCompliance = calculateReviewCompliance(reviews);
 
         // Reflection quality
         const reflections = db

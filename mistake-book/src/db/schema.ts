@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS questions (
   question_text TEXT NOT NULL,
   latex_content TEXT,
   question_payload TEXT,
+  knowledge_points TEXT,
   source TEXT NOT NULL CHECK(source IN ('ocr', 'bank', 'ai_generated')),
   question_type TEXT NOT NULL CHECK(question_type IN ('选择', '解答'))
 );
@@ -145,5 +146,9 @@ export function initDb() {
   const hasQuestionPayload = questionColumns.some((column) => column.name === "question_payload");
   if (!hasQuestionPayload) {
     db.exec("ALTER TABLE questions ADD COLUMN question_payload TEXT");
+  }
+  const hasKnowledgePoints = questionColumns.some((column) => column.name === "knowledge_points");
+  if (!hasKnowledgePoints) {
+    db.exec("ALTER TABLE questions ADD COLUMN knowledge_points TEXT");
   }
 }

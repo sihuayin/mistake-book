@@ -39,6 +39,14 @@ export interface KnowledgeGraph {
 export type UserRole = "student" | "parent";
 export type ErrorType = "粗心" | "概念混淆" | "思路断链" | "完全不会";
 
+export interface ImageRegion {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  unit?: "normalized";
+}
+
 export interface DiagramRelation {
   kind: string;
   at?: string;
@@ -60,10 +68,14 @@ export interface DiagramData {
   segments?: Array<[string, string]>;
   relations?: DiagramRelation[];
   labels?: DiagramLabel[];
+  region?: ImageRegion;
+  preview_image_base64?: string;
 }
 
 export interface QuestionPayload {
   stem_text?: string;
+  question_region?: ImageRegion;
+  question_preview_image_base64?: string;
   options?: Array<{
     label: string;
     text: string;
@@ -142,6 +154,7 @@ export interface OcrProblem {
   matched_section_id?: string;
   section_name?: string;
   confidence?: number;
+  order_index?: number;
 }
 
 export interface OcrResult {
@@ -149,6 +162,7 @@ export interface OcrResult {
   latexBlocks: string[];
   confidence: number;
   summary?: string;
+  warnings?: string[];
   problems?: OcrProblem[];
 }
 

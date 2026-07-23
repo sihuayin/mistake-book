@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useRef, useCallback } from "react";
 
 interface OcrResult {
@@ -137,7 +138,9 @@ function OcrTestPanel() {
 
       {preview && (
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <img src={preview} alt="Preview" className="max-w-full rounded-lg" />
+          <div className="relative h-[360px] w-full overflow-hidden rounded-lg bg-gray-50">
+            <Image src={preview} alt="Preview" fill className="object-contain" unoptimized />
+          </div>
         </div>
       )}
 

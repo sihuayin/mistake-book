@@ -1,7 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getSectionMeta } from "@/lib/knowledge";
 import { getSession } from "@/lib/session";
 import type { QuestionPayload } from "@/lib/types";
+
+function parseKnowledgePoints(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value !== "string" || !value.trim()) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+  } catch {
+    return value
+      .split(/[，,、\n]/g)
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+}
 
 export async function GET(
   _req: NextRequest,
@@ -35,10 +55,17 @@ export async function GET(
     }
   }
 
+  const sectionMeta =
+    typeof question.section_id === "string" ? getSectionMeta(question.section_id) : null;
+
   return NextResponse.json({
     question: {
       ...question,
+      section_name: sectionMeta?.section.name ?? null,
+      chapter_title: sectionMeta?.chapter_title ?? null,
+      grade: sectionMeta?.grade ?? null,
       question_payload: parsedPayload,
+      knowledge_points: parseKnowledgePoints(question.knowledge_points),
     },
     attempt,
     reflections,

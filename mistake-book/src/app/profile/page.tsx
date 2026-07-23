@@ -39,6 +39,6 @@ export default function ProfilePage() {
   }
 
   return (
-    <StudentOverviewPanel title="五维能力总览" />
+    <StudentOverviewPanel studentId={user?.id ?? undefined} title="五维能力总览" />
   );
 }

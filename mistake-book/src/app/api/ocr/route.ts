@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initDb } from "@/db/schema";
 import { getKnowledgeGraph, getSectionMeta } from "@/lib/knowledge";
+import type { OcrProblem } from "@/lib/types";
+import { pickPayloadSplitIndex, splitNumberedProblemText } from "@/lib/ocr-split";
 
 let initialized = false;
 
@@ -9,6 +11,30 @@ function ensureDb() {
     initDb();
     initialized = true;
   }
+}
+
+function expandOcrProblems(problems: OcrProblem[]) {
+  const expanded: OcrProblem[] = [];
+
+  for (const problem of problems) {
+    const splitTexts = splitNumberedProblemText(problem.question_text);
+    if (splitTexts.length > 1) {
+      const payloadIndex = problem.question_payload ? pickPayloadSplitIndex(splitTexts) : -1;
+      expanded.push(
+        ...splitTexts.map((text, index) => ({
+          ...problem,
+          question_text: text,
+          latex_content: text,
+          question_payload: index === payloadIndex ? problem.question_payload : undefined,
+        }))
+      );
+      continue;
+    }
+
+    expanded.push(problem);
+  }
+
+  return expanded;
 }
 
 export async function GET() {
@@ -31,7 +57,7 @@ export async function POST(req: NextRequest) {
     const kg = getKnowledgeGraph();
     const kgJson = JSON.stringify(kg);
     const problems = await Promise.all(
-      (result.problems ?? []).map(async (problem) => {
+      expandOcrProblems(result.problems ?? []).map(async (problem) => {
         const classify = await classifyQuestion(problem.question_text, kgJson).catch(() => ({
           matched_section_id: "",
           confidence: 0,

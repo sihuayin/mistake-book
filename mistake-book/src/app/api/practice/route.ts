@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { getKnowledgeGraph, findSection } from "@/lib/knowledge";
+import { getKnowledgeGraph } from "@/lib/knowledge";
+import { getPracticeQuestionsForSection } from "@/lib/practice";
 import { v4 as uuidv4 } from "uuid";
 
 // GET /api/practice?section_id=1.1  — get questions for a section (from bank or AI)
@@ -40,30 +41,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(weakSections);
   }
 
-  const db = getDb();
-
-  // Try question bank first
-  const bankQuestions = db
-    .prepare("SELECT * FROM question_bank WHERE section_id = ? ORDER BY RANDOM() LIMIT 3")
-    .all(sectionId) as Record<string, unknown>[];
-
-  if (bankQuestions.length > 0) {
-    return NextResponse.json({ source: "bank", questions: bankQuestions });
+  try {
+    const result = await getPracticeQuestionsForSection(sectionId);
+    return NextResponse.json(result);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "题目生成失败" },
+      { status: 404 }
+    );
   }
-
-  // Fall back to AI generation
-  const found = findSection(sectionId);
-  if (!found) return NextResponse.json({ error: "章节不存在" }, { status: 404 });
-
-  const { generateVariation } = await import("@/lib/ai");
-  const generated = await generateVariation(
-    sectionId,
-    found.section.description,
-    found.section.key_points,
-    `关于${found.section.name}的解答题`
-  );
-
-  return NextResponse.json({ source: "ai", questions: [generated] });
 }
 
 // POST /api/practice — create a practice session

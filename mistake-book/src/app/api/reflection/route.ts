@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
-import type { ErrorType, ReflectionPayload } from "@/lib/types";
+import type { ReflectionPayload } from "@/lib/types";
 import { getFallbackFourQuestions } from "@/lib/ai";
 
 export async function POST(req: NextRequest) {
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   // Return fallback four questions
   return NextResponse.json({ questions: getFallbackFourQuestions() });
 }
