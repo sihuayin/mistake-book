@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import MathContent from "@/components/MathContent";
 
 interface Section {
   id: string;
@@ -46,6 +47,8 @@ export default function KnowledgeBasePage() {
   const [meta, setMeta] = useState<Pick<KnowledgeGraph, "curriculum" | "grade" | "subject" | "stage"> | null>(null);
   const [filterGrade, setFilterGrade] = useState("");
   const [expanded, setExpanded] = useState<string>("");
+  const [seedStatus, setSeedStatus] = useState<Record<string, string>>({});
+  const [seeding, setSeeding] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -85,6 +88,28 @@ export default function KnowledgeBasePage() {
       .catch(() => setLoading(false));
   }, [filterGrade]);
 
+  async function seedSection(sectionId: string, sectionName: string) {
+    if (seeding) return;
+    setSeeding(true);
+    setSeedStatus((prev) => ({ ...prev, [sectionId]: "生成中..." }));
+    try {
+      const res = await fetch("/api/seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section_id: sectionId, count: 3 }),
+      });
+      const data = await res.json();
+      setSeedStatus((prev) => ({
+        ...prev,
+        [sectionId]: data.count > 0 ? data.count + " 道题" : "生成失败",
+      }));
+    } catch {
+      setSeedStatus((prev) => ({ ...prev, [sectionId]: "生成失败" }));
+    } finally {
+      setSeeding(false);
+    }
+  }
+
   if (loading) {
     return <div className="text-center py-16 text-gray-400">加载中...</div>;
   }
@@ -98,7 +123,7 @@ export default function KnowledgeBasePage() {
         </p>
       </div>
 
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-3 flex-wrap items-center">
         <select
           value={filterGrade}
           onChange={(e) => setFilterGrade(e.target.value)}
@@ -109,6 +134,23 @@ export default function KnowledgeBasePage() {
             <option key={grade} value={grade}>{grade}</option>
           ))}
         </select>
+        <button
+          onClick={async () => {
+            if (seeding || !confirm("确认要一键生成当前筛选下所有章节的题库？每个章节 3 道题，建议分批次执行。")) return;
+            setSeeding(true);
+            const allSections = (gradeGroups.length > 0 ? gradeGroups : [{ grade: "", chapters }])
+              .filter((g) => !filterGrade || g.grade === filterGrade)
+              .flatMap((g) => g.chapters.flatMap((ch) => ch.sections));
+            for (const s of allSections) {
+              await seedSection(s.id, s.name);
+            }
+            setSeeding(false);
+          }}
+          disabled={seeding}
+          className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-2 rounded-xl font-medium disabled:opacity-40"
+        >
+          {seeding ? "生成中..." : "一键填充题库"}
+        </button>
       </div>
 
       <div className="space-y-6">
@@ -163,18 +205,28 @@ export default function KnowledgeBasePage() {
                             </div>
 
                             {s.formulas && (
-                              <div className="bg-gray-50 rounded-lg px-3 py-2 text-xs text-gray-600 font-mono mt-2">
-                                {s.formulas}
+                              <div className="bg-white rounded-[16px] border border-slate-100 px-3 py-2 mt-2 shadow-sm">
+                                <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-slate-400">公式</div>
+                                <MathContent content={s.formulas} className="text-sm leading-6 text-slate-800" />
                               </div>
                             )}
                           </div>
 
+                          <div className="flex flex-col items-end gap-2 shrink-0">
                           <Link
                             href={`/practice?section_id=${s.id}&grade=${encodeURIComponent(group.grade)}`}
                             className="text-xs text-blue-600 hover:underline whitespace-nowrap"
                           >
                             去练习 →
                           </Link>
+                          <button
+                            onClick={() => seedSection(s.id, s.name)}
+                            disabled={seeding}
+                            className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full disabled:opacity-40 whitespace-nowrap"
+                          >
+                            {seedStatus[s.id] || "生成题库"}
+                          </button>
+                        </div>
                         </div>
                       </div>
                     ))}

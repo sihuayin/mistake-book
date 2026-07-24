@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense } from "react";
 import MathContent from "@/components/MathContent";
+import ImageModal from "@/components/ImageModal";
 import type { QuestionPayload } from "@/lib/types";
 
 interface Mistake {
@@ -53,6 +54,7 @@ function MistakeListContent() {
   const [mistakes, setMistakes] = useState<Mistake[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [grades, setGrades] = useState<string[]>([]);
+  const [modalImage, setModalImage] = useState<{ src: string; alt: string } | null>(null);
   const [filterGrade, setFilterGrade] = useState(searchParams.get("grade") ?? "");
   const [filterSection, setFilterSection] = useState(searchParams.get("section_id") ?? "");
   const [filterError, setFilterError] = useState("");
@@ -248,24 +250,44 @@ function MistakeListContent() {
                           局部预览
                         </div>
                         {m.question_payload?.question_preview_image_base64 ? (
+                          <button
+                            onClick={() =>
+                              setModalImage({
+                                src: m.question_payload!.question_preview_image_base64!,
+                                alt: "题干裁剪预览",
+                              })
+                            }
+                            className="w-full text-left"
+                          >
                           <div className="overflow-hidden rounded-xl border border-white bg-white">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={m.question_payload.question_preview_image_base64}
                               alt="题干裁剪预览"
-                              className="h-20 w-full object-contain"
+                              className="h-20 w-full cursor-pointer object-contain transition-opacity hover:opacity-75"
                             />
                           </div>
+                          </button>
                         ) : null}
                         {m.question_payload?.diagram?.preview_image_base64 ? (
+                          <button
+                            onClick={() =>
+                              setModalImage({
+                                src: m.question_payload!.diagram!.preview_image_base64!,
+                                alt: "图形裁剪预览",
+                              })
+                            }
+                            className="w-full text-left"
+                          >
                           <div className="mt-2 overflow-hidden rounded-xl border border-white bg-white">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={m.question_payload.diagram.preview_image_base64}
                               alt="图形裁剪预览"
-                              className="h-20 w-full object-contain"
+                              className="h-20 w-full cursor-pointer object-contain transition-opacity hover:opacity-75"
                             />
                           </div>
+                          </button>
                         ) : null}
                       </div>
                       {m.question_payload?.diagram?.scene ? (
@@ -284,6 +306,13 @@ function MistakeListContent() {
             </Link>
           ))}
         </div>
+      )}
+      {modalImage && (
+        <ImageModal
+          src={modalImage.src}
+          alt={modalImage.alt}
+          onClose={() => setModalImage(null)}
+        />
       )}
     </div>
   );

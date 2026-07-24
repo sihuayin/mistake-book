@@ -35,6 +35,7 @@ export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [weakSections, setWeakSections] = useState<WeakSection[]>([]);
   const [recentMistakes, setRecentMistakes] = useState<Mistake[]>([]);
+  const [reviewCount, setReviewCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,13 +49,15 @@ export default function HomePage() {
         return Promise.all([
           fetch(`/api/practice${gradeParam}`).then((r) => r.json()),
           fetch(`/api/mistakes${gradeParam}`).then((r) => r.json()),
+          fetch(`/api/reviews`).then((r) => r.json()),
         ]);
       })
       .then((results) => {
         if (!results) return;
-        const [sections, mistakes] = results;
+        const [sections, mistakes, reviews] = results;
         setWeakSections((sections as WeakSection[]).filter((s) => s.error_count > 0).slice(0, 5));
         setRecentMistakes((mistakes as Mistake[]).slice(0, 5));
+        setReviewCount(Array.isArray(reviews) ? reviews.filter((r: Record<string, unknown>) => r.status === "pending" && r.is_overdue).length : 0);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -124,17 +127,14 @@ export default function HomePage() {
           <div className="mt-3 text-4xl font-semibold text-amber-500">{weakSections.length}</div>
           <div className="mt-2 text-sm text-slate-600">当前需要重点补强的章节</div>
         </div>
-        <div className="glass-panel rounded-[24px] p-5">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Today Focus</div>
-          <div className="mt-3 text-lg font-semibold text-emerald-600">
-            {focusSection?.section_name ?? "继续保持"}
+        <Link href="/review" className="glass-panel rounded-[24px] p-5 block hover:shadow-md transition-shadow">
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Pending Reviews</div>
+          <div className="mt-3 text-4xl font-semibold text-rose-500">{reviewCount}</div>
+          <div className="mt-2 text-sm text-slate-600">到期需复习</div>
+          <div className="mt-1 text-xs text-rose-600">
+            {reviewCount > 0 ? "有到期复习待完成" : "当前无到期复习"}
           </div>
-          <div className="mt-2 text-sm text-slate-600">
-            {focusSection
-              ? "先把最靠前的薄弱点吃透，再扩大练习范围"
-              : "今天适合做少量复盘，维持手感"}
-          </div>
-        </div>
+        </Link>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

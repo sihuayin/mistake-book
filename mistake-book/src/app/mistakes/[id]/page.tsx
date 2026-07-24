@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import MathContent from "@/components/MathContent";
 import DiagramPreview from "@/components/DiagramPreview";
+import ImageModal from "@/components/ImageModal";
 import type { DiagramRelation, QuestionPayload } from "@/lib/types";
 
 interface Reflection {
@@ -80,6 +81,7 @@ export default function MistakeDetailPage({
   const router = useRouter();
   const [detail, setDetail] = useState<MistakeDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [modalImage, setModalImage] = useState<{ src: string; alt: string } | null>(null);
 
   useEffect(() => {
     params.then(({ id }) => {
@@ -153,24 +155,44 @@ export default function MistakeDetailPage({
             {question.question_payload?.question_preview_image_base64 ? (
               <div className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50 p-2">
                 <div className="px-1 pb-2 text-xs font-medium text-slate-500">题目裁剪</div>
+                <button
+                  onClick={() =>
+                    setModalImage({
+                      src: question.question_payload!.question_preview_image_base64!,
+                      alt: "题目局部裁剪",
+                    })
+                  }
+                  className="w-full text-left"
+                >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={question.question_payload.question_preview_image_base64}
                   alt="题目局部裁剪"
-                  className="max-h-[220px] w-full rounded-xl object-contain"
+                  className="max-h-[220px] w-full cursor-pointer rounded-xl object-contain transition-opacity hover:opacity-85"
                 />
+                </button>
               </div>
             ) : null}
             {question.question_payload?.diagram?.preview_image_base64 &&
             question.question_payload.diagram.type !== "coordinate_graph" ? (
               <div className="overflow-hidden rounded-2xl border border-slate-100 bg-slate-50 p-2">
                 <div className="px-1 pb-2 text-xs font-medium text-slate-500">图形裁剪</div>
+                <button
+                  onClick={() =>
+                    setModalImage({
+                      src: question.question_payload!.diagram!.preview_image_base64!,
+                      alt: "图形局部裁剪",
+                    })
+                  }
+                  className="w-full text-left"
+                >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={question.question_payload.diagram.preview_image_base64}
                   alt="图形局部裁剪"
-                  className="max-h-[220px] w-full rounded-xl object-contain"
+                  className="max-h-[220px] w-full cursor-pointer rounded-xl object-contain transition-opacity hover:opacity-85"
                 />
+                </button>
               </div>
             ) : null}
           </div>
@@ -288,6 +310,13 @@ export default function MistakeDetailPage({
           录入新错题
         </Link>
       </div>
+      {modalImage && (
+        <ImageModal
+          src={modalImage.src}
+          alt={modalImage.alt}
+          onClose={() => setModalImage(null)}
+        />
+      )}
     </div>
   );
 }

@@ -44,11 +44,74 @@ function pickBetterQuestionText(questionText: string, latexContent: string) {
   return cleanQuestion || cleanLatex;
 }
 
+/**
+ * Post-process OCR question text: if student answer is embedded in the question text
+ * (e.g. "计算：√81 - ∛1000 = -1"), strip it and move to student_answer.
+ */
+function separateAnswerFromQuestion(questionText: string, studentAnswerCurrent: string): { questionText: string; studentAnswer: string } {
+  const result = { questionText: questionText.trim(), studentAnswer: studentAnswerCurrent.trim() };
+
+  if (!result.questionText) return result;
+  if (result.studentAnswer) return result;
+
+  // Strip common metadata patterns from question text
+  result.questionText = result.questionText
+    .replace(/^[(（]本题(?:满分|共)?\s*\d+\s*分[)）]\s*/, "")
+    .replace(/^[(（]第\s*\d+\s*题[)）]\s*/, "")
+    .trim();
+
+  // Pattern 1: "= expression" at end - extended for LaTeX
+  const eqMatch = result.questionText.match(/(?:[＝=])\s*((?:\\frac\{[^}]+\}\{[^}]+\}|\\sqrt(?:\[[^\]]+\])?\{[^}]+\}|\\[a-zA-Z]+\{[^}]*\}|[⁰¹²³⁴⁵⁶⁷⁸⁹⁻+−0-9a-zA-Zπθ√∙·×±\s\/\(\)\[\]]{1,60})+\s*)$/);
+  if (eqMatch && eqMatch[1].trim().length >= 1) {
+    const stripped = result.questionText.slice(0, -(eqMatch[0].length)).trim();
+    if (stripped.length >= 8) {
+      result.studentAnswer = eqMatch[1].trim().replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (c) => '⁰¹²³⁴⁵⁶⁷⁸⁹'.indexOf(c).toString());
+      result.questionText = stripped;
+      return result;
+    }
+  }
+
+  // Pattern 2: "答：[content]" or "答案：[content]"
+  const daMatch = result.questionText.match(/[（(]?[答]案?[：:]\s*(.+)$/);
+  if (daMatch && daMatch[1].trim().length >= 1 && daMatch[1].trim().length <= 30) {
+    const stripped = result.questionText.slice(0, -(daMatch[0].length)).trim();
+    if (stripped.length >= 8) {
+      result.studentAnswer = daMatch[1].trim();
+      result.questionText = stripped;
+      return result;
+    }
+  }
+
+  // Pattern 3: "解得：[content]" or "得：[content]"
+  const jieDeMatch = result.questionText.match(/(?:解得|得)[：:]\s*(.+)$/);
+  if (jieDeMatch && jieDeMatch[1].trim().length >= 1 && jieDeMatch[1].trim().length <= 60) {
+    const stripped = result.questionText.slice(0, -(jieDeMatch[0].length)).trim();
+    if (stripped.length >= 8) {
+      result.studentAnswer = jieDeMatch[1].trim();
+      result.questionText = stripped;
+      return result;
+    }
+  }
+
+  // Pattern 4: "解：[content]"
+  const jieMatch = result.questionText.match(/[解][：:]\s*(.+)$/);
+  if (jieMatch && jieMatch[1].trim().length >= 2 && jieMatch[1].trim().length <= 50) {
+    const stripped = result.questionText.slice(0, -(jieMatch[0].length)).trim();
+    if (stripped.length >= 8) {
+      result.studentAnswer = jieMatch[1].trim();
+      result.questionText = stripped;
+      return result;
+    }
+  }
+
+  return result;
+}
 function repairJsonBackslashes(input: string) {
   let output = "";
   let inString = false;
+  let i = 0;
 
-  for (let i = 0; i < input.length; i += 1) {
+  while (i < input.length) {
     const char = input[i];
     const next = input[i + 1] ?? "";
 
@@ -58,10 +121,23 @@ function repairJsonBackslashes(input: string) {
         inString = !inString;
       }
       output += char;
+      i += 1;
       continue;
     }
 
     if (char === "\\" && inString) {
+      if (next === "u") {
+        const hex = input.slice(i + 2, i + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+          output += "\\u" + hex;
+          i += 6;
+          continue;
+        }
+        output += "\\\\u";
+        i += 2;
+        continue;
+      }
+
       const isValidEscape =
         next === '"' ||
         next === "\\" ||
@@ -70,13 +146,21 @@ function repairJsonBackslashes(input: string) {
         next === "f" ||
         next === "n" ||
         next === "r" ||
-        next === "t" ||
-        next === "u";
-      output += isValidEscape ? "\\" : "\\\\";
-      continue;
+        next === "t";
+
+      if (isValidEscape) {
+        output += "\\" + next;
+        i += 2;
+        continue;
+      } else {
+        output += "\\\\" + next;
+        i += 2;
+        continue;
+      }
     }
 
     output += char;
+    i += 1;
   }
 
   return output;
@@ -102,10 +186,30 @@ function parseEmbeddedJson(input: string) {
 }
 
 function sanitizeText(input: string) {
-  return input
+  let result = input
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/```$/i, "")
     .trim();
+
+  // If starts with JSON braces, try extracting plain text field
+  if (result.startsWith("{") || result.startsWith("[")) {
+    const textMatch = result.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (textMatch?.[1] && textMatch[1].length > 10) {
+      result = textMatch[1];
+    }
+    const questionMatch = result.match(/"question(?:_text)?"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (questionMatch?.[1] && questionMatch[1].length > 5 && result === input.trim()) {
+      result = questionMatch[1];
+    }
+  }
+
+  // Clean up common JSON escaping artifacts
+  result = result
+    .replace(/\\n/g, '\\n').replace(/\\n/g, '\\\\n')
+    .replace(/\\"/g, '\\"').replace(/\\\\"/g, '"')
+    .replace(/\\r/g, '').replace(/\\t/g, '\\t').replace(/\\\\t/g, '\t');
+
+  return result;
 }
 
 function decodeLooseEscapes(input: string) {
@@ -113,30 +217,35 @@ function decodeLooseEscapes(input: string) {
     .replaceAll("\\n", "\n")
     .replaceAll("\\r", "")
     .replaceAll("\\t", "\t")
-    .replaceAll('\\"', '"');
+    .replaceAll('\\"', '"')
+    .replace(/\\([^\\"\/bfnrtu])/g, '$1');
 }
 
 function extractRootText(input: string) {
   const parsed = parseEmbeddedJson(input);
   if (parsed) {
-    const question = String(parsed.question ?? "").trim();
+    const question = String(parsed.question_text ?? parsed.question ?? parsed.text ?? "").trim();
     const text = String(parsed.text ?? "").trim();
     return sanitizeText(decodeLooseEscapes(question || text));
   }
 
-  const textMatch = input.match(/"text"\s*:\s*"([\s\S]*?)"\s*(,|})/);
-  if (textMatch?.[1]) {
-    return sanitizeText(decodeLooseEscapes(textMatch[1]));
-  }
-
-  const questionMatch = input.match(/"question(?:_text)?"\s*:\s*"([\s\S]*?)"\s*(,|})/);
-  if (questionMatch?.[1]) {
-    return sanitizeText(decodeLooseEscapes(questionMatch[1]));
+  // Try regex extraction with improved patterns
+  // First try to extract text from JSON-like content
+  const jsonLike = input.replace(/^\s*(?:```(?:json)?\s*)?/, "").trim();
+  if (jsonLike.startsWith("{") || jsonLike.startsWith("[")) {
+    // Try broader patterns for text extraction
+    const textMatch = jsonLike.match(/"text"\s*:\s*"([\s\S]*?)"\s*(?:,|})/);
+    if (textMatch?.[1] && textMatch[1].length > 5) {
+      return sanitizeText(decodeLooseEscapes(textMatch[1]));
+    }
+    const questionMatch = jsonLike.match(/"question(?:_text)?"\s*:\s*"([\s\S]*?)"\s*(?:,|})/);
+    if (questionMatch?.[1]) {
+      return sanitizeText(decodeLooseEscapes(questionMatch[1]));
+    }
   }
 
   return sanitizeText(input);
 }
-
 function shouldShowMathPreview(text: string) {
   return /(\$\$?|\b\\(?:frac|dfrac|tfrac|sqrt|begin|end|cdot|times|leq|geq|neq|pi|theta|angle|pm|text|boxed)\b|\\\(|\\\[|[_^=]|√|×|·|±|∠)/.test(
     text
@@ -302,7 +411,7 @@ function cropRegionToDataUrl(
   );
   const sourceHeight = Math.max(24, Math.round(rawHeight * Math.min(1, Math.max(0.72, heightScale))));
 
-  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+  const scale = Math.min(1.2, maxSide / Math.max(sourceWidth, sourceHeight));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(sourceWidth * scale));
   canvas.height = Math.max(1, Math.round(sourceHeight * scale));
@@ -350,7 +459,7 @@ async function attachCroppedPreviews(problems: ParsedProblem[], imageSrc: string
 
     if (questionRegion && !payload.question_preview_image_base64) {
       nextPayload.question_preview_image_base64 =
-        cropRegionToDataUrl(image, questionRegion, { padding: 0.008, maxSide: 980, heightScale: 0.9 }) ??
+        cropRegionToDataUrl(image, questionRegion, { padding: 0.015, maxSide: 980, heightScale: 1.0 }) ??
         payload.question_preview_image_base64;
     }
 
@@ -358,7 +467,7 @@ async function attachCroppedPreviews(problems: ParsedProblem[], imageSrc: string
       nextPayload.diagram = {
         ...payload.diagram,
         preview_image_base64:
-          cropRegionToDataUrl(image, payload.diagram.region, { padding: 0.012, maxSide: 760, heightScale: 0.96 }) ??
+          cropRegionToDataUrl(image, payload.diagram.region, { padding: 0.015, maxSide: 860, heightScale: 1.0 }) ??
           payload.diagram.preview_image_base64,
       };
     }
@@ -373,9 +482,14 @@ async function attachCroppedPreviews(problems: ParsedProblem[], imageSrc: string
 function normalizeProblemLike(problem: Record<string, unknown>): ParsedProblem | null {
   const rawQuestionText = extractRootText(String(problem.question_text ?? problem.question ?? ""));
   const rawLatexContent = extractRootText(String(problem.latex_content ?? problem.latex ?? rawQuestionText));
-  const studentAnswer = String(problem.student_answer ?? problem.user_answer ?? "").trim();
-  const questionText = pickBetterQuestionText(rawQuestionText, rawLatexContent);
-  const latexContent = sanitizeText(rawLatexContent || questionText);
+  const rawStudentAnswer = String(problem.student_answer ?? problem.user_answer ?? "").trim();
+  const rawQuestion = pickBetterQuestionText(rawQuestionText, rawLatexContent);
+  const latexContent = sanitizeText(rawLatexContent || rawQuestion);
+
+  // Separate student answer that might be embedded in question text
+  const separated = separateAnswerFromQuestion(rawQuestion, rawStudentAnswer);
+  const questionText = separated.questionText;
+  const studentAnswer = separated.studentAnswer;
 
   if (!questionText && !latexContent) return null;
 

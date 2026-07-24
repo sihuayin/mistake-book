@@ -49,6 +49,7 @@ export default function Nav() {
   const studentLinks = [
     { href: "/", label: "首页" },
     { href: "/profile", label: "个人中心" },
+    { href: "/review", label: "复习" },
     { href: "/mistakes", label: "错题本" },
     { href: "/practice", label: "练习" },
     { href: "/knowledge-base", label: "知识图谱" },

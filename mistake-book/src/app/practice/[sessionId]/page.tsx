@@ -130,6 +130,8 @@ function SessionContent() {
   const [loadingVariation, setLoadingVariation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [selectedErrorType, setSelectedErrorType] = useState<string>("");
+  const [savedQuestionId, setSavedQuestionId] = useState<string>("");
   const [sessionReady, setSessionReady] = useState(false);
 
   const loadSessionQuestion = useCallback(async () => {
@@ -217,8 +219,9 @@ function SessionContent() {
       }
 
       setGradeResult(result);
+      setSelectedErrorType("");
 
-      await fetch("/api/mistakes", {
+      const saveRes = await fetch("/api/mistakes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -231,6 +234,8 @@ function SessionContent() {
           is_correct: result.total_score >= result.max_score * 0.7,
         }),
       });
+      const saveData = await saveRes.json().catch(() => ({}));
+      if (saveData?.id) setSavedQuestionId(saveData.id);
 
       setPhase("submitted");
     } catch (err: unknown) {
@@ -475,6 +480,48 @@ function SessionContent() {
                     <div className="mt-4 rounded-[22px] bg-white px-4 py-4 shadow-[0_10px_24px_rgba(82,112,170,0.06)]">
                       <MathContent content={currentQuestion.solution} className="text-sm leading-7 text-slate-700" />
                     </div>
+                  </div>
+                ) : null}
+
+                {scorePercent < 70 ? (
+                  <div className="rounded-[24px] border border-amber-100 bg-amber-50/70 p-4">
+                    <div className="text-sm font-medium text-amber-900">标记错误原因</div>
+                    <p className="mt-1 text-xs text-amber-700">标记后下次复习能更快定位问题类型。</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {["粗心", "概念混淆", "思路断链", "完全不会"].map((type) => {
+                        const active = selectedErrorType === type;
+                        return (
+                          <button
+                            key={type}
+                            onClick={() => setSelectedErrorType(active ? "" : type)}
+                            className={`rounded-full px-4 py-1.5 text-xs font-medium transition-all ${
+                              active
+                                ? "bg-amber-600 text-white shadow-sm"
+                                : "bg-white text-amber-800 border border-amber-200 hover:bg-amber-100"
+                            }`}
+                          >
+                            {type}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedErrorType && savedQuestionId ? (
+                      <button
+                        onClick={async () => {
+                          await fetch("/api/reflection", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              questionId: savedQuestionId,
+                              errorType: selectedErrorType,
+                            }),
+                          });
+                        }}
+                        className="mt-3 rounded-full bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+                      >
+                        保存错误类型
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
 
