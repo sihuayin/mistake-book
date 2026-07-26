@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { fetchAiQuota, type ClientAiQuota } from "@/lib/client-ai";
 
 interface User {
   id: string;
@@ -17,6 +18,7 @@ export default function Nav() {
   const router = useRouter();
   // undefined = loading, null = not logged in, User = logged in
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [quota, setQuota] = useState<ClientAiQuota | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -26,6 +28,15 @@ export default function Nav() {
       .then((data) => setUser(data))
       .catch(() => setUser(null));
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setQuota(null);
+      return;
+    }
+
+    fetchAiQuota().then(setQuota).catch(() => setQuota(null));
+  }, [user]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -82,6 +93,12 @@ export default function Nav() {
         </div>
 
         <div className="flex items-center">
+          {user && quota ? (
+            <div className="mr-3 hidden rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 md:block">
+              AI 点数 {quota.remainingCredits}/{quota.monthlyCredits}
+            </div>
+          ) : null}
+
           {/* Loading: render nothing to avoid flash */}
           {user === undefined && <div className="w-20 h-5" />}
 
@@ -120,6 +137,9 @@ export default function Nav() {
                         ? `学生${user.current_grade ? ` · ${user.current_grade}` : ""} · ${user.family_code}`
                         : `家长 · ${user.family_code}`}
                     </p>
+                    {quota ? (
+                      <p className="mt-1 text-xs text-violet-600">AI 点数剩余 {quota.remainingCredits}/{quota.monthlyCredits}</p>
+                    ) : null}
                   </div>
                   {user.role === "student" && (
                     <Link

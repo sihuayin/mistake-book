@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { initDb } from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import type { ReflectionPayload } from "@/lib/types";
 import { getFallbackFourQuestions } from "@/lib/ai";
+import { guardedAiCall, toAiErrorResponse } from "@/lib/ai-guard";
+
+let initialized = false;
+
+function ensureDb() {
+  if (!initialized) {
+    initDb();
+    initialized = true;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
+    ensureDb();
     const body: ReflectionPayload = await req.json();
     const { questionId, errorType, currentResponse, previousResponses = [] } = body;
 
@@ -47,16 +59,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Generate next question
-    const result = await generateReflectionQuestion(
-      errorType,
-      question?.question_text ?? "",
-      [...previousResponses, currentResponse].filter(Boolean)
-    );
+    const reflectionHistory = [...previousResponses, currentResponse].filter(Boolean);
+    const result = await guardedAiCall({
+      feature: "reflection",
+      payloadForHash: { questionId, errorType, reflectionHistory },
+      run: () => generateReflectionQuestion(errorType, question?.question_text ?? "", reflectionHistory),
+    });
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return toAiErrorResponse(err);
   }
 }
 

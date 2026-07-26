@@ -70,6 +70,15 @@ function getVisionProvider(): Provider {
   return configured;
 }
 
+export function getActiveProviderMetadata(isVision = false) {
+  const provider = isVision ? getVisionProvider() : getProvider();
+  const config = getModelConfig(provider);
+  return {
+    provider,
+    model: isVision ? config.visionModel : config.textModel,
+  };
+}
+
 function hasProviderKey(provider: Provider) {
   const envName = PROVIDER_CONFIG[provider].apiKeyEnv;
   return Boolean(process.env[envName]);

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import MathContent from "@/components/MathContent";
+import { fetchAiJson, fetchAiQuota, type ClientAiQuota } from "@/lib/client-ai";
 
 interface Question {
   question: string;
@@ -133,6 +134,15 @@ function SessionContent() {
   const [selectedErrorType, setSelectedErrorType] = useState<string>("");
   const [savedQuestionId, setSavedQuestionId] = useState<string>("");
   const [sessionReady, setSessionReady] = useState(false);
+  const [quota, setQuota] = useState<ClientAiQuota | null>(null);
+
+  const refreshQuota = useCallback(async () => {
+    try {
+      setQuota(await fetchAiQuota());
+    } catch {
+      setQuota(null);
+    }
+  }, []);
 
   const loadSessionQuestion = useCallback(async () => {
     const authRes = await fetch("/api/auth/me");
@@ -190,6 +200,10 @@ function SessionContent() {
     };
   }, [loadSessionQuestion]);
 
+  useEffect(() => {
+    void refreshQuota();
+  }, [refreshQuota]);
+
   const currentQuestion = phase === "variation" ? variation : question;
   const currentSection = sessionInfo?.section;
   const currentSectionId = sessionInfo?.current_section_id ?? "";
@@ -204,7 +218,12 @@ function SessionContent() {
     setError("");
 
     try {
-      const res = await fetch("/api/ai/grade", {
+      const result = await fetchAiJson<{
+        total_score: number;
+        max_score: number;
+        overall_feedback: string;
+        step_results?: { step: number; description: string; score: number; max: number; feedback: string }[];
+      }>("/api/ai/grade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -212,14 +231,11 @@ function SessionContent() {
           studentAnswer,
           solutionSteps: currentQuestion.solution_steps ?? [currentQuestion.answer ?? ""],
         }),
-      });
-      const result = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error((result as { error?: string })?.error || "评分失败");
-      }
+      }, "评分失败");
 
       setGradeResult(result);
       setSelectedErrorType("");
+      await refreshQuota();
 
       const saveRes = await fetch("/api/mistakes", {
         method: "POST",
@@ -250,20 +266,17 @@ function SessionContent() {
     setLoadingVariation(true);
     setError("");
     try {
-      const res = await fetch("/api/ai/variation", {
+      const data = await fetchAiJson<Record<string, unknown>>("/api/ai/variation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sectionId: currentSectionId, originalQuestion: currentQuestion.question }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error((data as { error?: string })?.error || "变式题生成失败");
-      }
+      }, "变式题生成失败");
 
       setVariation(normalizeQuestion(data as Record<string, unknown>));
       setPhase("variation");
       setStudentAnswer("");
       setGradeResult(null);
+      await refreshQuota();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "变式题生成失败");
     } finally {
@@ -333,6 +346,12 @@ function SessionContent() {
                   {phase === "submitted" ? "已评分" : phase === "variation" ? "变式题" : "待作答"}
                 </div>
               </div>
+              <div className="rounded-[22px] bg-[linear-gradient(135deg,rgba(184,166,255,0.18)_0%,rgba(255,255,255,0.92)_100%)] px-4 py-4">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-violet-700/70">AI 点数</div>
+                <div className="mt-2 text-sm font-semibold text-slate-950">
+                  {quota ? `剩余 ${quota.remainingCredits} / ${quota.monthlyCredits}` : "加载中..."}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -392,9 +411,16 @@ function SessionContent() {
                     <h2 className="text-base font-semibold text-slate-950">写下你的解题过程</h2>
                     <p className="mt-1 text-sm text-slate-500">尽量分步写，方便后面 AI 给你逐步反馈。</p>
                   </div>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
-                    支持分步作答
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
+                      支持分步作答
+                    </span>
+                    {quota ? (
+                      <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+                        本月剩余 {quota.remainingCredits} 点
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
 
                 <textarea
@@ -508,14 +534,23 @@ function SessionContent() {
                     {selectedErrorType && savedQuestionId ? (
                       <button
                         onClick={async () => {
-                          await fetch("/api/reflection", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              questionId: savedQuestionId,
-                              errorType: selectedErrorType,
-                            }),
-                          });
+                          try {
+                            await fetchAiJson(
+                              "/api/reflection",
+                              {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  questionId: savedQuestionId,
+                                  errorType: selectedErrorType,
+                                }),
+                              },
+                              "保存错误类型失败"
+                            );
+                            await refreshQuota();
+                          } catch (err: unknown) {
+                            setError(err instanceof Error ? err.message : "保存错误类型失败");
+                          }
                         }}
                         className="mt-3 rounded-full bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
                       >

@@ -123,6 +123,55 @@ CREATE TABLE IF NOT EXISTS question_bank (
   source TEXT NOT NULL DEFAULT 'manual'
 );
 
+-- AI 额度账户表
+CREATE TABLE IF NOT EXISTS ai_quota_accounts (
+  id TEXT PRIMARY KEY,
+  scope_type TEXT NOT NULL CHECK(scope_type IN ('family', 'user')),
+  scope_id TEXT NOT NULL,
+  plan_name TEXT NOT NULL DEFAULT 'free',
+  monthly_credits INTEGER NOT NULL DEFAULT 20,
+  used_credits INTEGER NOT NULL DEFAULT 0,
+  reset_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- AI 调用流水表
+CREATE TABLE IF NOT EXISTS ai_usage_ledger (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  family_code TEXT NOT NULL,
+  feature TEXT NOT NULL CHECK(feature IN ('ocr', 'classify', 'grade', 'variation', 'reflection')),
+  provider TEXT,
+  model TEXT,
+  credits_charged INTEGER NOT NULL DEFAULT 0,
+  request_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('success', 'failed', 'cached', 'rejected')),
+  error_code TEXT,
+  latency_ms INTEGER,
+  meta_json TEXT,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- AI 请求缓存表
+CREATE TABLE IF NOT EXISTS ai_request_cache (
+  request_hash TEXT PRIMARY KEY,
+  feature TEXT NOT NULL CHECK(feature IN ('ocr', 'classify', 'grade', 'variation', 'reflection')),
+  response_json TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+-- AI 频控事件表
+CREATE TABLE IF NOT EXISTS ai_rate_limit_events (
+  id TEXT PRIMARY KEY,
+  scope_key TEXT NOT NULL,
+  feature TEXT NOT NULL CHECK(feature IN ('ocr', 'classify', 'grade', 'variation', 'reflection')),
+  created_at INTEGER NOT NULL
+);
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_attempts_student ON attempts(student_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_question ON attempts(question_id);
@@ -130,6 +179,12 @@ CREATE INDEX IF NOT EXISTS idx_reflections_question ON reflections(question_id);
 CREATE INDEX IF NOT EXISTS idx_mastery_student ON mastery_scores(student_id);
 CREATE INDEX IF NOT EXISTS idx_review_due ON review_records(due_at, status);
 CREATE INDEX IF NOT EXISTS idx_users_family_code ON users(family_code);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_quota_scope ON ai_quota_accounts(scope_type, scope_id);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_family_created ON ai_usage_ledger(family_code, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage_ledger(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_feature_created ON ai_usage_ledger(feature, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_cache_expires ON ai_request_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_ai_rate_limit_scope_feature_created ON ai_rate_limit_events(scope_key, feature, created_at);
 `;
 
 export function initDb() {

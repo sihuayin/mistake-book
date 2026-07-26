@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKnowledgeGraph } from "@/lib/knowledge";
+import { guardedAiCall, toAiErrorResponse } from "@/lib/ai-guard";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,11 +13,14 @@ export async function POST(req: NextRequest) {
 
     const { classifyQuestion } = await import("@/lib/ai");
     const kg = getKnowledgeGraph();
-    const result = await classifyQuestion(questionText, JSON.stringify(kg));
+    const result = await guardedAiCall({
+      feature: "classify",
+      payloadForHash: { questionText },
+      run: () => classifyQuestion(questionText, JSON.stringify(kg)),
+    });
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return toAiErrorResponse(err);
   }
 }

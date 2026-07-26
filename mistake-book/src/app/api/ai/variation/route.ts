@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { VariationPayload } from "@/lib/types";
 import { findSection } from "@/lib/knowledge";
+import { guardedAiCall, toAiErrorResponse } from "@/lib/ai-guard";
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,16 +26,15 @@ export async function POST(req: NextRequest) {
     const { section } = sectionData;
 
     const { generateVariation } = await import("@/lib/ai");
-    const result = await generateVariation(
-      sectionId,
-      section.description,
-      section.key_points,
-      originalQuestion
-    );
+    const result = await guardedAiCall({
+      feature: "variation",
+      payloadForHash: { sectionId, originalQuestion },
+      run: () =>
+        generateVariation(sectionId, section.description, section.key_points, originalQuestion),
+    });
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return toAiErrorResponse(err);
   }
 }

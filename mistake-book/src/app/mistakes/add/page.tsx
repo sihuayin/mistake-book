@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DiagramPreview from "@/components/DiagramPreview";
 import MathContent from "@/components/MathContent";
 import type { ImageRegion, QuestionPayload } from "@/lib/types";
 import { pickPayloadSplitIndex, splitNumberedProblemText } from "@/lib/ocr-split";
+import { fetchAiJson, fetchAiQuota, type ClientAiQuota } from "@/lib/client-ai";
 
 type ErrorType = "粗心" | "概念混淆" | "思路断链" | "完全不会";
 
@@ -616,6 +617,7 @@ export default function AddMistakePage() {
   const [doneCount, setDoneCount] = useState(0);
   const [error, setError] = useState("");
   const [expandedMathEditors, setExpandedMathEditors] = useState<Record<string, boolean>>({});
+  const [quota, setQuota] = useState<ClientAiQuota | null>(null);
   const recognizedCount = problems.filter((problem) => problem.question_text.trim()).length;
   const diagramCount = problems.filter((problem) => Boolean(problem.question_payload?.diagram)).length;
   const cropCount = problems.filter(
@@ -626,6 +628,10 @@ export default function AddMistakePage() {
   const mathCount = problems.filter(
     (problem) => shouldShowMathPreview(problem.question_text) || shouldShowMathPreview(problem.latex_content ?? "")
   ).length;
+
+  useEffect(() => {
+    fetchAiQuota().then(setQuota).catch(() => setQuota(null));
+  }, []);
 
   function resetAll() {
     setImageBase64("");
@@ -667,13 +673,15 @@ export default function AddMistakePage() {
     setError("");
 
     try {
-      const res = await fetch("/api/ocr", {
+      const data = await fetchAiJson<{
+        problems?: ParsedProblem[];
+        summary?: string;
+        warnings?: string[];
+      }>("/api/ocr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64 }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "识别失败");
+      }, "识别失败");
 
       const nextProblems = Array.isArray(data.problems)
         ? await attachCroppedPreviews(
@@ -688,6 +696,8 @@ export default function AddMistakePage() {
       setSummary(data.summary ?? "");
       setWarnings(Array.isArray(data.warnings) ? data.warnings.map((item: unknown) => String(item)).filter(Boolean) : []);
       setProblems(nextProblems);
+      const nextQuota = await fetchAiQuota().catch(() => null);
+      setQuota(nextQuota);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "识别失败");
     } finally {
@@ -866,6 +876,11 @@ export default function AddMistakePage() {
               <div className="mt-2 text-sm leading-6 text-slate-600">
                 自动拆分多道题、识别学生作答、判断错题候选，并自动关联到知识图谱章节。
               </div>
+              {quota ? (
+                <div className="mt-3 inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+                  本月剩余 AI 点数 {quota.remainingCredits} / {quota.monthlyCredits}
+                </div>
+              ) : null}
             </div>
 
             {summary && (

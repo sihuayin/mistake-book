@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { GradePayload } from "@/lib/types";
+import { guardedAiCall, toAiErrorResponse } from "@/lib/ai-guard";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,11 +15,14 @@ export async function POST(req: NextRequest) {
     }
 
     const { gradeStepByStep } = await import("@/lib/ai");
-    const result = await gradeStepByStep(question, studentAnswer, solutionSteps);
+    const result = await guardedAiCall({
+      feature: "grade",
+      payloadForHash: { question, studentAnswer, solutionSteps },
+      run: () => gradeStepByStep(question, studentAnswer, solutionSteps),
+    });
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return toAiErrorResponse(err);
   }
 }

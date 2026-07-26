@@ -3,6 +3,7 @@ import { initDb } from "@/db/schema";
 import { getKnowledgeGraph, getSectionMeta } from "@/lib/knowledge";
 import type { OcrProblem } from "@/lib/types";
 import { pickPayloadSplitIndex, splitNumberedProblemText } from "@/lib/ocr-split";
+import { guardedAiCall, toAiErrorResponse } from "@/lib/ai-guard";
 
 let initialized = false;
 
@@ -53,34 +54,41 @@ export async function POST(req: NextRequest) {
     }
 
     const { classifyQuestion, ocrImage } = await import("@/lib/ai");
-    const result = await ocrImage(imageBase64);
-    const kg = getKnowledgeGraph();
-    const kgJson = JSON.stringify(kg);
-    const problems = await Promise.all(
-      expandOcrProblems(result.problems ?? []).map(async (problem) => {
-        const classify = await classifyQuestion(problem.question_text, kgJson).catch(() => ({
-          matched_section_id: "",
-          confidence: 0,
-          reason: "",
-        }));
-        const meta = classify.matched_section_id ? getSectionMeta(classify.matched_section_id) : null;
+    const result = await guardedAiCall({
+      feature: "ocr",
+      payloadForHash: { imageBase64 },
+      run: async () => {
+        const ocrResult = await ocrImage(imageBase64);
+        const kg = getKnowledgeGraph();
+        const kgJson = JSON.stringify(kg);
+        const problems = await Promise.all(
+          expandOcrProblems(ocrResult.problems ?? []).map(async (problem) => {
+            const classify = await classifyQuestion(problem.question_text, kgJson).catch(() => ({
+              matched_section_id: "",
+              confidence: 0,
+              reason: "",
+            }));
+            const meta = classify.matched_section_id ? getSectionMeta(classify.matched_section_id) : null;
+
+            return {
+              ...problem,
+              matched_section_id: classify.matched_section_id,
+              section_name: meta?.section.name ?? "",
+              confidence: Math.max(problem.confidence ?? 0, classify.confidence ?? 0),
+            };
+          })
+        );
 
         return {
-          ...problem,
-          matched_section_id: classify.matched_section_id,
-          section_name: meta?.section.name ?? "",
-          confidence: Math.max(problem.confidence ?? 0, classify.confidence ?? 0),
+          ...ocrResult,
+          problems,
         };
-      })
-    );
-
-    return NextResponse.json({
-      ...result,
-      problems,
+      },
     });
+
+    return NextResponse.json(result);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
     console.error("Error in OCR route:", err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return toAiErrorResponse(err);
   }
 }
